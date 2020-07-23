@@ -1,0 +1,352 @@
+use rand::{Rng, RngCore, SeedableRng, distributions::Uniform, rngs::OsRng};
+use rand_xoshiro::Xoshiro256PlusPlus as BaseRng;
+
+pub enum Error {
+    OOB,
+    Dead,
+    Marked,
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+enum CellCategory {
+    Mine,
+    Empty(Option<u8>),
+}
+
+impl Default for CellCategory {
+    fn default() -> Self {
+        Self::Empty(None)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
+struct Cell {
+    hidden: bool,
+    marked: bool,
+    scratch: bool,
+    category: CellCategory,
+}
+
+impl Default for Cell {
+    fn default() -> Self {
+        Self {
+            hidden: true,
+            marked: false,
+            scratch: false,
+            category: Default::default(),
+        }
+    }
+}
+
+pub enum Dim {
+    Square(usize),
+    Rect(usize, usize),
+}
+
+impl Dim {
+    fn w(&self) -> usize {
+        match self {
+            Dim::Square(n) => *n,
+            Dim::Rect(n, _) => *n,
+        }
+    }
+    fn h(&self) -> usize {
+        match self {
+            Dim::Square(n) => *n,
+            Dim::Rect(_, n) => *n,
+        }
+    }
+}
+
+pub struct Board {
+    cells: Box<[Box<[Cell]>]>,
+    dims: (usize, usize),
+}
+
+impl Board {
+    pub fn beginner() -> Result<Self, ()> {
+        Self::new(Dim::Square(9), 10)
+    }
+
+    pub fn intermediate() -> Result<Self, ()> {
+        Self::new(Dim::Square(16), 40)
+    }
+
+    pub fn advanced() -> Result<Self, ()> {
+        Self::new(Dim::Rect(30, 16), 99)
+    }
+
+    pub fn new(dim: Dim, num_mines: u64) -> Result<Self, ()> {
+        let mut seed = [0; 32];
+        OsRng.fill_bytes(&mut seed);
+        Self::new_seeded(dim, num_mines, seed)
+    }
+
+    pub fn new_seeded(dim: Dim, num_mines: u64, seed: <BaseRng as SeedableRng>::Seed) -> Result<Self, ()> {
+        let (w, h) = (dim.w(), dim.h());
+        let mut randos = BaseRng::from_seed(seed);
+
+        let (mut x_randos, mut y_randos) = {
+            let mut seed = [[0; 32]; 2];
+            randos.fill_bytes(&mut seed[0]);
+            randos.fill_bytes(&mut seed[1]);
+            let x_rng = BaseRng::from_seed(seed[0]);
+            let y_rng = BaseRng::from_seed(seed[1]);
+
+            let x_range = Uniform::from(0..w);
+            let y_range = Uniform::from(0..h);
+
+            (x_rng.sample_iter(x_range), y_rng.sample_iter(y_range))
+        };
+
+        let mut cells = vec![vec![Cell::default(); w as usize]; h as usize]
+            .into_iter()
+            .map(|v| v.into_boxed_slice())
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        let dims = (w, h);
+
+        for _ in 0..num_mines {
+            let mut x;
+            let mut y;
+            while {
+                x = x_randos.next().ok_or(())? as usize;
+                y = y_randos.next().ok_or(())? as usize;
+                cells[y][x].category == CellCategory::Mine
+            } {}
+            cells[y][x].category = CellCategory::Mine;
+        }
+
+        let mut board = Self {
+            cells,
+            dims,
+        };
+
+        for row in 0..h {
+            for col in 0..w {
+                let category = board.cells[row][col].category;
+                if category == CellCategory::Mine {
+                    continue
+                }
+                let surroundings = board.surroundings_of((col, row));
+                let nearby_bombs = surroundings
+                    .filter(|(x, y)| board.cells[*y][*x].category == CellCategory::Mine)
+                    .count() as u8;
+                if nearby_bombs == 0 {
+                    continue
+                }
+                board.cells[row][col].category = CellCategory::Empty(Some(nearby_bombs));
+            }
+        }
+
+        Ok(board)
+    }
+
+    pub fn is_loc(&self, (x, y): (usize, usize)) -> bool {
+        (0..self.dims.0).contains(&x) && (0..self.dims.1).contains(&y)
+    }
+
+    pub fn mark(&mut self, point: (usize, usize)) -> Result<(), Error> {
+        let (x, y) = point;
+        if !self.is_loc(point) {
+            // TODO Consider replacing this error with an assert.
+            return Err(Error::OOB);
+        }
+
+        let cell = &mut self.cells[y][x];
+        cell.marked = !cell.marked;
+        Ok(())
+    }
+
+    fn surroundings_of(&self, loc: (usize, usize)) -> impl Iterator<Item = (usize, usize)> {
+        let dims = self.dims;
+        (0..9)
+            .map(|i| (i % 3, i / 3))
+            // Remove out of bounds and loc.
+            .filter(move |offset| {
+                if *offset == (1, 1) {
+                    return false;
+                }
+
+                // check x
+                if offset.0 == 0 && loc.0 == 0 {
+                    // If decrement and at minimum
+                    return false;
+                }
+                if offset.0 == 2 && loc.0 == (dims.0 - 1) {
+                    // If increment and at maximum
+                    return false;
+                }
+
+                // check y
+                if offset.1 == 0 && loc.1 == 0 {
+                    // If decrement and at minimum
+                    return false;
+                }
+                if offset.1 == 2 && loc.1 == (dims.1 - 1) {
+                    // If increment and at maximum
+                    return false;
+                }
+
+                true
+            })
+            // Map offsets to actual locations.
+            .map(move |offset| {
+                // offset
+                // 0 means decrement
+                // 1 means ignore
+                // 2 means increment
+                let x = match offset.0 {
+                    0 => loc.0 - 1, // decrement
+                    2 => loc.0 + 1, // increment
+                    _ => loc.0, // Ignore 1 and everything else
+                };
+                let y = match offset.1 {
+                    0 => loc.1 - 1, // decrement
+                    2 => loc.1 + 1, // increment
+                    _ => loc.1, // Ignore 1 and everything else
+                };
+                (x, y)
+            })
+    }
+
+    fn chord(&mut self, point: (usize, usize), target_num_mines: u8) -> Result<(), Error> {
+        let surroundings: Vec<_> = self.surroundings_of(point)
+            .collect();
+        let marked_mines = surroundings.iter()
+            .filter(|(x, y)| self.cells[*y][*x].marked)
+            .count() as u8;
+        if marked_mines != target_num_mines {
+            return Ok(());
+        }
+        let unmarked_mines = surroundings.iter()
+            .filter(|(x, y)| {
+                let cell = &mut self.cells[*y][*x];
+                !cell.marked && (cell.category == CellCategory::Mine)
+            })
+            .count() as u8;
+        for (x, y) in surroundings.into_iter() {
+            let cell = &mut self.cells[y][x];
+            if !cell.marked {
+                if cell.category == CellCategory::Empty(None) {
+                    self.dig_region((x, y))?;
+                } else {
+                    cell.hidden = false;
+                }
+            }
+        }
+        if unmarked_mines != 0 {
+            Err(Error::Dead)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn dig_region(&mut self, start: (usize, usize)) -> Result<(), Error> {
+        let mut scanning_locs = vec![start];
+        for y in 0..self.dims.1 {
+            for x in 0..self.dims.0 {
+                self.cells[y][x].scratch = false;
+            }
+        }
+        self.cells[start.1][start.0].hidden = false;
+        while let Some(loc) = scanning_locs.pop() {
+            self.surroundings_of(loc).for_each(|to_scan_loc @ (_, _)| {
+                let (x, y) = to_scan_loc;
+                let cell = &mut self.cells[y][x];
+                if let CellCategory::Empty(num_mines) = cell.category {
+                    // Only reveal if no mines in surroundings.
+                    if num_mines.is_none() && !cell.marked && !cell.scratch {
+                        cell.scratch = true;
+                        scanning_locs.push(to_scan_loc);
+                    }
+                    if !cell.marked {
+                        cell.hidden = false;
+                    }
+                } else {
+                    unimplemented!("Found a mine while flood filling an empty region. This should be impossible.");
+                }
+            });
+        }
+        Ok(())
+    }
+
+    pub fn dig(&mut self, point: (usize, usize)) -> Result<(), Error> {
+        let (x, y) = point;
+        if !self.is_loc(point) {
+            // TODO Consider replacing this error with an assert.
+            return Err(Error::OOB);
+        }
+        let cell = &mut self.cells[y][x];
+        if cell.marked && cell.hidden {
+            return Err(Error::Marked);
+        }
+
+        match cell.category {
+            CellCategory::Mine => Err(Error::Dead),
+            CellCategory::Empty(None) => if cell.hidden {
+                self.dig_region(point)
+            } else {
+                Ok(())
+            },
+            CellCategory::Empty(Some(num_mines)) => if cell.hidden {
+                cell.hidden = false;
+                Ok(())
+            } else {
+                self.chord(point, num_mines)
+            },
+        }
+    }
+
+    pub fn check_completion(&self) -> bool {
+        let (w, h) = self.dims;
+        for row in 0..h {
+            for col in 0..w {
+                let cell = self.cells[row][col];
+                if !cell.marked && cell.category == CellCategory::Mine {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+impl Board {
+    pub fn display(&self, max_dims: (usize, usize), top_left: (usize, usize)) -> Result<Box<[Box<[char]>]>, ()> {
+        let rem_dims = (self.dims.0 - top_left.0, self.dims.1 - top_left.1);
+        let true_dims = (max_dims.0.min(rem_dims.0), max_dims.1.min(rem_dims.1));
+        let mut snippet = vec![vec!['\u{25A1}'; true_dims.0]; true_dims.1]
+            .into_iter()
+            .map(|row| row.into_boxed_slice())
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        for row in 0..true_dims.0 {
+            for col in 0..true_dims.1 {
+                let cell = &self.cells[row][col];
+                if cell.hidden {
+                    if cell.marked {
+                        snippet[row][col] = 'F';
+                    }
+                } else {
+                    snippet[row][col] = match cell.category {
+                        CellCategory::Mine => 'M',
+                        CellCategory::Empty(None) => '\u{25A0}',
+                        CellCategory::Empty(Some(n)) => (b'0' + n) as char,
+                    };
+                }
+            }
+        }
+        Ok(snippet)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn board_surroundings_iter() {
+        let board = Board::new(20, 20, rand::rngs::SmallRngs::from_entropy());
+    }
+}
