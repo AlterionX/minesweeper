@@ -309,7 +309,7 @@ impl Board {
 
 // Probing and stat checking.
 impl Board {
-    pub fn check_completion(&self) -> bool {
+    pub fn is_completed(&self) -> bool {
         let (w, h) = self.dims;
         for row in 0..h {
             for col in 0..w {

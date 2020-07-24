@@ -265,7 +265,7 @@ Press any key to continue.");
             },
         }
 
-        if board.check_completion() {
+        if board.is_completed() {
             let size = termion::terminal_size()
                 .expect("no problem getting the terminal size.");
             write!(stdout, "{}", termion::cursor::Goto(0, size.1 - 1))
