@@ -21,6 +21,7 @@ impl Default for CellCategory {
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 struct Cell {
+    // TODO convert hidden/marked into enum Hidden/Marked/Visible
     hidden: bool,
     marked: bool,
     scratch: bool,
@@ -63,6 +64,66 @@ pub struct Board {
     dims: (usize, usize),
 }
 
+// Helpers
+impl Board {
+    pub fn is_loc(&self, (x, y): (usize, usize)) -> bool {
+        (0..self.dims.0).contains(&x) && (0..self.dims.1).contains(&y)
+    }
+
+    fn surroundings_of(&self, loc: (usize, usize)) -> impl Iterator<Item = (usize, usize)> {
+        let dims = self.dims;
+        (0..9)
+            .map(|i| (i % 3, i / 3))
+            // Remove out of bounds and loc.
+            .filter(move |offset| {
+                if *offset == (1, 1) {
+                    return false;
+                }
+
+                // check x
+                if offset.0 == 0 && loc.0 == 0 {
+                    // If decrement and at minimum
+                    return false;
+                }
+                if offset.0 == 2 && loc.0 == (dims.0 - 1) {
+                    // If increment and at maximum
+                    return false;
+                }
+
+                // check y
+                if offset.1 == 0 && loc.1 == 0 {
+                    // If decrement and at minimum
+                    return false;
+                }
+                if offset.1 == 2 && loc.1 == (dims.1 - 1) {
+                    // If increment and at maximum
+                    return false;
+                }
+
+                true
+            })
+            // Map offsets to actual locations.
+            .map(move |offset| {
+                // offset
+                // 0 means decrement
+                // 1 means ignore
+                // 2 means increment
+                let x = match offset.0 {
+                    0 => loc.0 - 1, // decrement
+                    2 => loc.0 + 1, // increment
+                    _ => loc.0, // Ignore 1 and everything else
+                };
+                let y = match offset.1 {
+                    0 => loc.1 - 1, // decrement
+                    2 => loc.1 + 1, // increment
+                    _ => loc.1, // Ignore 1 and everything else
+                };
+                (x, y)
+            })
+    }
+}
+
+// Constructors
 impl Board {
     pub fn beginner() -> Result<Self, ()> {
         Self::new(Dim::Square(9), 10)
@@ -141,11 +202,10 @@ impl Board {
 
         Ok(board)
     }
+}
 
-    pub fn is_loc(&self, (x, y): (usize, usize)) -> bool {
-        (0..self.dims.0).contains(&x) && (0..self.dims.1).contains(&y)
-    }
-
+// Marking and digging.
+impl Board {
     pub fn mark(&mut self, point: (usize, usize)) -> Result<(), Error> {
         let (x, y) = point;
         if !self.is_loc(point) {
@@ -156,58 +216,6 @@ impl Board {
         let cell = &mut self.cells[y][x];
         cell.marked = !cell.marked;
         Ok(())
-    }
-
-    fn surroundings_of(&self, loc: (usize, usize)) -> impl Iterator<Item = (usize, usize)> {
-        let dims = self.dims;
-        (0..9)
-            .map(|i| (i % 3, i / 3))
-            // Remove out of bounds and loc.
-            .filter(move |offset| {
-                if *offset == (1, 1) {
-                    return false;
-                }
-
-                // check x
-                if offset.0 == 0 && loc.0 == 0 {
-                    // If decrement and at minimum
-                    return false;
-                }
-                if offset.0 == 2 && loc.0 == (dims.0 - 1) {
-                    // If increment and at maximum
-                    return false;
-                }
-
-                // check y
-                if offset.1 == 0 && loc.1 == 0 {
-                    // If decrement and at minimum
-                    return false;
-                }
-                if offset.1 == 2 && loc.1 == (dims.1 - 1) {
-                    // If increment and at maximum
-                    return false;
-                }
-
-                true
-            })
-            // Map offsets to actual locations.
-            .map(move |offset| {
-                // offset
-                // 0 means decrement
-                // 1 means ignore
-                // 2 means increment
-                let x = match offset.0 {
-                    0 => loc.0 - 1, // decrement
-                    2 => loc.0 + 1, // increment
-                    _ => loc.0, // Ignore 1 and everything else
-                };
-                let y = match offset.1 {
-                    0 => loc.1 - 1, // decrement
-                    2 => loc.1 + 1, // increment
-                    _ => loc.1, // Ignore 1 and everything else
-                };
-                (x, y)
-            })
     }
 
     fn chord(&mut self, point: (usize, usize), target_num_mines: u8) -> Result<(), Error> {
@@ -297,7 +305,10 @@ impl Board {
             },
         }
     }
+}
 
+// Probing and stat checking.
+impl Board {
     pub fn check_completion(&self) -> bool {
         let (w, h) = self.dims;
         for row in 0..h {
