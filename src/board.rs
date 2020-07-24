@@ -321,6 +321,9 @@ impl Board {
         }
         true
     }
+    pub fn launch_probe(&self) -> Result<(), Error> {
+        unimplemented!("Probing not yet implemented.");
+    }
 }
 
 impl Board {

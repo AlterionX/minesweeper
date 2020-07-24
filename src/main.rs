@@ -23,6 +23,7 @@ enum Direction {
 enum Action {
     Mark,
     Dig,
+    LaunchProbe,
     ExitGame,
     Move(Direction),
     JumpTo((usize, usize)),
@@ -54,6 +55,7 @@ fn read_input<T: Read + TermRead>(stream: &mut Events<T>) -> Result<Option<(Acti
                     Key::Char('m') => Some(Action::Mark),
                     Key::Char('u') => Some(Action::Dig),
                     Key::Char('q') => Some(Action::ExitGame),
+                    Key::Char('!') => Some(Action::LaunchProbe),
                     _ => None,
                 };
                 Ok(action.map(|a| (a, None)))
@@ -208,6 +210,7 @@ Press any key to continue.");
         // TODO Get input from terminal.
         let res = match input.action {
             Action::ExitGame => break,
+            Action::LaunchProbe => board.launch_probe(),
             Action::Mark => board.mark(input.point),
             Action::Dig => board.dig(input.point),
             Action::JumpTo(p) => {
