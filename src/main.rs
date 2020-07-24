@@ -1,4 +1,5 @@
 use std::{io::{stdin, stdout, Read, Write}, collections::VecDeque};
+use structopt::StructOpt;
 
 use termion::{
     raw::{IntoRawMode, RawTerminal},
@@ -7,9 +8,10 @@ use termion::{
 };
 
 mod board;
-use board::{Board, Error};
+use board::{Board, Dim, Error};
 
 mod opts;
+use opts::{Opts, Def, Preset};
 
 enum Direction {
     Up,
@@ -74,7 +76,9 @@ fn read_input<T: Read + TermRead>(stream: &mut Events<T>) -> Result<Option<(Acti
                             Ok(e) => {
                                 if let Event::Mouse(MouseEvent::Release(x_up, y_up)) = e {
                                     if (x_up, y_up) == (x, y) {
-                                        let coords = (x_up as usize, y_up as usize);
+                                        // Input events are 1 indexed, so we're converting it to
+                                        // being 0 indexed.
+                                        let coords = (x_up as usize - 1, y_up as usize - 1);
                                         return Ok(Some(
                                             (Action::JumpTo(coords), Some(action))
                                         ));
@@ -144,6 +148,8 @@ fn print_board<W: Write>(
 }
 
 fn main() {
+    let cfg = Opts::from_args();
+
     println!("{}{}", termion::clear::All, termion::cursor::Goto(1, 1));
     // TODO ASCII art for the welcome message.
     println!("Hello, and welcome to Minesweeper. (The ASCII art is in the works. I swear.)
@@ -162,7 +168,13 @@ fn main() {
     let mut events = stdin().events();
     while let None = events.next() {}
 
-    let mut board = Board::beginner().expect("board to be created without a hitch.");
+    let mut board = match cfg.def {
+        Def::Preset(Preset::Beginner) => Board::beginner(),
+        Def::Preset(Preset::Intermediate) => Board::intermediate(),
+        Def::Preset(Preset::Advanced) => Board::advanced(),
+        Def::Descrip { width, height: Some(height), mines } => Board::new(Dim::Rect(width, height), mines),
+        Def::Descrip { width, height: None, mines } => Board::new(Dim::Square(width), mines),
+    }.expect("board to be created without a hitch.");
 
     let mut current_point = (0, 0);
     let mut queued_actions = VecDeque::new();
