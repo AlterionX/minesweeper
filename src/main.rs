@@ -152,17 +152,18 @@ fn main() {
 
     println!("{}{}", termion::clear::All, termion::cursor::Goto(1, 1));
     // TODO ASCII art for the welcome message.
-    println!("Hello, and welcome to Minesweeper. (The ASCII art is in the works. I swear.)
-             We're working on the control scheme, but for now press:
-             \tup/w/k to move up
-             \tleft/a/h to move left
-             \tdown/s/j to move down
-             \tright/d/l to move right
-             \tm/right click to mark
-             \tu/left click on a hidden tile to reveal
-             \tu/left click on an exposed tile to chord
+    println!("\
+Hello, and welcome to Minesweeper. (The ASCII art is in the works. I swear.)
+We're working on the control scheme, but for now press:
+\tup/w/k to move up
+\tleft/a/h to move left
+\tdown/s/j to move down
+\tright/d/l to move right
+\tm/right click to mark
+\tu/left click on a hidden tile to reveal
+\tu/left click on an exposed tile to chord
 
-             Press any key to continue.");
+Press any key to continue.");
 
     let mut stdout = MouseTerminal::from(stdout().into_raw_mode().unwrap());
     let mut events = stdin().events();

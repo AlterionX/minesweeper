@@ -321,8 +321,8 @@ impl Board {
             .map(|row| row.into_boxed_slice())
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        for row in 0..true_dims.0 {
-            for col in 0..true_dims.1 {
+        for row in 0..true_dims.1 {
+            for col in 0..true_dims.0 {
                 let cell = &self.cells[row][col];
                 if cell.hidden {
                     if cell.marked {
