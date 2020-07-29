@@ -1,6 +1,8 @@
 use rand::{Rng, RngCore, SeedableRng, distributions::Uniform, rngs::OsRng};
 use rand_xoshiro::Xoshiro256PlusPlus as BaseRng;
 
+use crate::solver::Solver;
+
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Error {
     OOB,
@@ -9,7 +11,7 @@ pub enum Error {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-enum CellCategory {
+pub enum CellCategory {
     Mine,
     Empty(Option<u8>),
 }
@@ -36,9 +38,9 @@ impl Default for CellState {
 #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
 pub struct Cell {
     // TODO convert hidden/marked into enum Hidden/Marked/Visible
-    state: CellState,
-    category: CellCategory,
-    scratch: bool,
+    pub state: CellState,
+    pub category: CellCategory,
+    pub scratch: bool,
 }
 
 impl Cell {
@@ -77,7 +79,7 @@ impl Dim {
 }
 
 pub struct Board {
-    cells: Box<[Box<[Cell]>]>,
+    pub cells: Box<[Box<[Cell]>]>,
     dims: (usize, usize),
 }
 
@@ -87,7 +89,7 @@ impl Board {
         (0..self.dims.0).contains(&x) && (0..self.dims.1).contains(&y)
     }
 
-    fn surroundings_of(&self, loc: (usize, usize)) -> impl Iterator<Item = (usize, usize)> {
+    pub fn surroundings_of(&self, loc: (usize, usize)) -> impl Iterator<Item = (usize, usize)> {
         let dims = self.dims;
         (0..9)
             .map(|i| (i % 3, i / 3))
@@ -137,6 +139,14 @@ impl Board {
                 };
                 (x, y)
             })
+    }
+
+    pub fn w(&self) -> usize {
+        self.dims.0
+    }
+
+    pub fn h(&self) -> usize {
+        self.dims.1
     }
 }
 
@@ -343,10 +353,12 @@ impl Board {
 
     pub fn launch_probe(&self) -> Result<(), Error> {
         // Check for any 100% valid moves.
-        // if self.get_known_hiddens().len() != 0 {
-        //     return Err(Error::Dead);
-        // }
-        unimplemented!("Probing not yet implemented.");
+        let valid_moves = Solver { board: self }.calculate_known_cells();
+        if valid_moves.is_some() {
+            Err(Error::Dead)
+        } else {
+            Ok(())
+        }
     }
 }
 
