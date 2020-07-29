@@ -1,6 +1,7 @@
 use rand::{Rng, RngCore, SeedableRng, distributions::Uniform, rngs::OsRng};
 use rand_xoshiro::Xoshiro256PlusPlus as BaseRng;
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Error {
     OOB,
     Dead,
@@ -20,25 +21,41 @@ impl Default for CellCategory {
 }
 
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
-struct Cell {
-    // TODO convert hidden/marked into enum Hidden/Marked/Visible
-    hidden: bool,
-    marked: bool,
-    scratch: bool,
-    category: CellCategory,
+pub enum CellState {
+    Hidden,
+    Marked,
+    Visible,
 }
 
-impl Default for Cell {
+impl Default for CellState {
     fn default() -> Self {
-        Self {
-            hidden: true,
-            marked: false,
-            scratch: false,
-            category: Default::default(),
+        Self::Hidden
+    }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
+pub struct Cell {
+    // TODO convert hidden/marked into enum Hidden/Marked/Visible
+    state: CellState,
+    category: CellCategory,
+    scratch: bool,
+}
+
+impl Cell {
+    fn to_char(&self) -> char {
+        match self.state {
+            CellState::Hidden => '\u{25A1}',
+            CellState::Marked => 'F',
+            CellState::Visible => match self.category {
+                CellCategory::Mine => 'M',
+                CellCategory::Empty(None) => '\u{25A0}',
+                CellCategory::Empty(Some(n)) => (b'0' + n) as char,
+            },
         }
     }
 }
 
+#[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Dim {
     Square(usize),
     Rect(usize, usize),
@@ -214,7 +231,9 @@ impl Board {
         }
 
         let cell = &mut self.cells[y][x];
-        cell.marked = !cell.marked;
+        if cell.state == CellState::Hidden {
+            cell.state = CellState::Marked;
+        }
         Ok(())
     }
 
@@ -222,7 +241,7 @@ impl Board {
         let surroundings: Vec<_> = self.surroundings_of(point)
             .collect();
         let marked_mines = surroundings.iter()
-            .filter(|(x, y)| self.cells[*y][*x].marked)
+            .filter(|(x, y)| self.cells[*y][*x].state == CellState::Marked)
             .count() as u8;
         if marked_mines != target_num_mines {
             return Ok(());
@@ -230,16 +249,16 @@ impl Board {
         let unmarked_mines = surroundings.iter()
             .filter(|(x, y)| {
                 let cell = &mut self.cells[*y][*x];
-                !cell.marked && (cell.category == CellCategory::Mine)
+                (cell.state != CellState::Marked) && (cell.category == CellCategory::Mine)
             })
             .count() as u8;
         for (x, y) in surroundings.into_iter() {
             let cell = &mut self.cells[y][x];
-            if !cell.marked {
+            if cell.state != CellState::Marked {
                 if cell.category == CellCategory::Empty(None) {
                     self.dig_region((x, y))?;
                 } else {
-                    cell.hidden = false;
+                    cell.state = CellState::Visible;
                 }
             }
         }
@@ -257,19 +276,19 @@ impl Board {
                 self.cells[y][x].scratch = false;
             }
         }
-        self.cells[start.1][start.0].hidden = false;
+        self.cells[start.1][start.0].state = CellState::Visible;
         while let Some(loc) = scanning_locs.pop() {
             self.surroundings_of(loc).for_each(|to_scan_loc @ (_, _)| {
                 let (x, y) = to_scan_loc;
                 let cell = &mut self.cells[y][x];
                 if let CellCategory::Empty(num_mines) = cell.category {
                     // Only reveal if no mines in surroundings.
-                    if num_mines.is_none() && !cell.marked && !cell.scratch {
+                    if num_mines.is_none() && cell.state != CellState::Marked && !cell.scratch {
                         cell.scratch = true;
                         scanning_locs.push(to_scan_loc);
                     }
-                    if !cell.marked {
-                        cell.hidden = false;
+                    if cell.state != CellState::Marked {
+                        cell.state = CellState::Visible;
                     }
                 } else {
                     unimplemented!("Found a mine while flood filling an empty region. This should be impossible.");
@@ -286,19 +305,19 @@ impl Board {
             return Err(Error::OOB);
         }
         let cell = &mut self.cells[y][x];
-        if cell.marked && cell.hidden {
+        if cell.state == CellState::Marked {
             return Err(Error::Marked);
         }
 
         match cell.category {
             CellCategory::Mine => Err(Error::Dead),
-            CellCategory::Empty(None) => if cell.hidden {
+            CellCategory::Empty(None) => if cell.state == CellState::Hidden {
                 self.dig_region(point)
             } else {
                 Ok(())
             },
-            CellCategory::Empty(Some(num_mines)) => if cell.hidden {
-                cell.hidden = false;
+            CellCategory::Empty(Some(num_mines)) => if cell.state == CellState::Hidden {
+                cell.state = CellState::Visible;
                 Ok(())
             } else {
                 self.chord(point, num_mines)
@@ -314,14 +333,19 @@ impl Board {
         for row in 0..h {
             for col in 0..w {
                 let cell = self.cells[row][col];
-                if !cell.marked && cell.category == CellCategory::Mine {
+                if cell.state == CellState::Marked && cell.category == CellCategory::Mine {
                     return false;
                 }
             }
         }
         true
     }
+
     pub fn launch_probe(&self) -> Result<(), Error> {
+        // Check for any 100% valid moves.
+        // if self.get_known_hiddens().len() != 0 {
+        //     return Err(Error::Dead);
+        // }
         unimplemented!("Probing not yet implemented.");
     }
 }
@@ -338,17 +362,7 @@ impl Board {
         for row in 0..true_dims.1 {
             for col in 0..true_dims.0 {
                 let cell = &self.cells[row][col];
-                if cell.hidden {
-                    if cell.marked {
-                        snippet[row][col] = 'F';
-                    }
-                } else {
-                    snippet[row][col] = match cell.category {
-                        CellCategory::Mine => 'M',
-                        CellCategory::Empty(None) => '\u{25A0}',
-                        CellCategory::Empty(Some(n)) => (b'0' + n) as char,
-                    };
-                }
+                snippet[row][col] = cell.to_char();
             }
         }
         Ok(snippet)
