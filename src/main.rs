@@ -7,6 +7,7 @@ use termion::{
     event::{Key, MouseButton, Event, MouseEvent},
 };
 
+mod solver;
 mod board;
 use board::{Board, Dim, Error};
 
