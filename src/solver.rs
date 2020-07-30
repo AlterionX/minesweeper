@@ -153,6 +153,9 @@ impl<'a> Solver<'a> {
 impl<'a> Solver<'a> {
     pub fn calculate_known_cells(&self) -> Option<Vec<(usize, usize)>> {
         let regions = self.extract_regions();
+        // TODO somehow recursively breakdown the list of regions into smaller regions and
+        // eliminate duplicates until it can't be broken down anymore.
+        // TODO Analyze the results after that.
         unimplemented!("Solver not yet fully functional.");
     }
 }
