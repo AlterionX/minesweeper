@@ -102,8 +102,35 @@ impl<'a> Solver<'a> {
         })
     }
 
+    fn board_region(&self) -> Region {
+        let mut num_mines = 0;
+        let mut hidden = vec![];
+        for loc in (0..self.board.h()).cartesian_product(0..self.board.w()) {
+            let (row, col) = loc;
+            let cell = &self.board.cells[row][col];
+            if cell.category == CellCategory::Mine {
+                num_mines += 1;
+            }
+            match cell.state {
+                // Is known, and therefore not part of the region.
+                CellState::Visible => (),
+                // Is presumed known, and therefore not part of the region.
+                CellState::Marked => (),
+                // Is unknown, and therefore required in analysis
+                CellState::Hidden => {
+                    hidden.push(loc);
+                },
+            };
+        }
+
+        Region {
+            mines: vec![(Bound::Included(num_mines as usize), Bound::Included(num_mines as usize))],
+            hidden,
+        }
+    }
+
     fn extract_regions(&self) -> Vec<Region> {
-        let mut rr = vec![];
+        let mut rr = vec![self.board_region()];
         for row in 0..self.board.h() {
             for col in 0..self.board.w() {
                 if let Some(r) = self.region_around((col, row)) {
