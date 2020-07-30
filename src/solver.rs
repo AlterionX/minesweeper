@@ -5,7 +5,6 @@ use crate::board::{Cell, CellState, CellCategory, Board};
 
 struct Region {
     mines: Vec<(Bound<usize>, Bound<usize>)>,
-    marked: Vec<(usize, usize)>,
     hidden: Vec<(usize, usize)>,
 }
 
@@ -18,7 +17,7 @@ pub struct Solver<'a> {
 impl<'a> Solver<'a> {
     fn region_around(&self, sentinel_loc @ (_, _): (usize, usize)) -> Option<Region> {
         let (col, row) = sentinel_loc;
-        let sentinel = &mut self.board.cells[row][col];
+        let sentinel = &self.board.cells[row][col];
         // Hidden and empty (with no surrounding mines) means no known mines nearby, and therefore
         // have no region. Marked cells are also useless.
         if sentinel.state != CellState::Visible {
@@ -40,16 +39,13 @@ impl<'a> Solver<'a> {
             (CellState::Visible, CellCategory::Mine) => panic!("Did not expect to attempt to solve a board with an exploded mine."),
         };
         let mut hidden = vec![];
-        let mut marked = vec![];
         for watched_loc in self.board.surroundings_of(sentinel_loc) {
             let watched_cell = self.board.cells[watched_loc.1][watched_loc.0];
-            match sentinel.state {
+            match watched_cell.state {
                 // Is known, and therefore not part of the region.
                 CellState::Visible => (),
                 // Is presumed known, and therefore not part of the region.
-                CellState::Marked => {
-                    marked.push(watched_loc);
-                },
+                CellState::Marked => (),
                 // Is unknown, and therefore required in analysis
                 CellState::Hidden => {
                     hidden.push(watched_loc);
@@ -60,7 +56,6 @@ impl<'a> Solver<'a> {
         Some(Region {
             mines: vec![(Bound::Included(num_watched_mines as usize), Bound::Included(num_watched_mines as usize))],
             hidden,
-            marked,
         })
     }
 
