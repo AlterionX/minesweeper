@@ -70,7 +70,7 @@ impl<'a> Solver<'a> {
             return None;
         }
 
-        let num_watched_mines = match (sentinel.state, sentinel.category) {
+        let mut num_watched_mines = match (sentinel.state, sentinel.category) {
             // A hidden or marked cell contributes no information to its surrounding region.
             // Neither does a revealed cell that is empty.
             (CellState::Hidden, _) => return None,
@@ -88,7 +88,9 @@ impl<'a> Solver<'a> {
                 // Is known, and therefore not part of the region.
                 CellState::Visible => (),
                 // Is presumed known, and therefore not part of the region.
-                CellState::Marked => (),
+                CellState::Marked => {
+                    num_watched_mines -= 1;
+                },
                 // Is unknown, and therefore required in analysis
                 CellState::Hidden => {
                     hidden.push(watched_loc);
@@ -115,7 +117,9 @@ impl<'a> Solver<'a> {
                 // Is known, and therefore not part of the region.
                 CellState::Visible => (),
                 // Is presumed known, and therefore not part of the region.
-                CellState::Marked => (),
+                CellState::Marked => {
+                    num_mines -= 1;
+                },
                 // Is unknown, and therefore required in analysis
                 CellState::Hidden => {
                     hidden.push(loc);
