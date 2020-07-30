@@ -1,4 +1,4 @@
-use itertools as iter;
+use itertools::{self as iter, Itertools};
 use std::ops::{Bound, RangeBounds};
 
 use crate::board::{Cell, CellState, CellCategory, Board};
@@ -6,6 +6,49 @@ use crate::board::{Cell, CellState, CellCategory, Board};
 struct Region {
     mines: Vec<(Bound<usize>, Bound<usize>)>,
     hidden: Vec<(usize, usize)>,
+}
+
+fn split_vecs<T: PartialEq>(aa: Vec<T>, bb: Vec<T>) -> (Vec<T>, Vec<T>, Vec<T>) {
+    let mut shared_els = vec![];
+    let mut aa_only_els = vec![];
+    let mut is_only_in_bb = vec![true; bb.len()];
+    for a in aa.into_iter() {
+        let mut is_in_bb = false;
+        for (idx, b) in bb.iter().enumerate() {
+            if &a == b {
+                is_only_in_bb[idx] = false;
+                is_in_bb = true;
+                break;
+            }
+        }
+        if is_in_bb {
+            shared_els.push(a);
+        } else {
+            aa_only_els.push(a)
+        }
+    }
+    let bb_only_els = iter::zip(
+        bb.into_iter(),
+        is_only_in_bb.into_iter(),
+    )
+        .filter_map(|(b, is_only_in_bb)| if is_only_in_bb {
+            Some(b)
+        } else {
+            None
+        })
+        .collect();
+    (aa_only_els, shared_els, bb_only_els)
+}
+
+fn map_bound<T, S, F>(b: Bound<T>, f: F) -> Bound<S>
+where
+    F: Fn(T) -> S,
+{
+    match b {
+        Bound::Excluded(s) => Bound::Excluded(f(s)),
+        Bound::Included(s) => Bound::Included(f(s)),
+        Bound::Unbounded => Bound::Unbounded,
+    }
 }
 
 // TODO Make this entire process more efficient. Cause it should be possible.
