@@ -159,3 +159,10 @@ impl<'a> Solver<'a> {
         unimplemented!("Solver not yet fully functional.");
     }
 }
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn solver_test() {
+    }
+}
