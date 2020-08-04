@@ -4,6 +4,7 @@ use std::ops::{Bound, RangeBounds};
 use crate::board::{Cell, CellState, CellCategory, Board};
 
 struct Region {
+    // Each bound is "or"d with the others.
     mines: Vec<(Bound<usize>, Bound<usize>)>,
     hidden: Vec<(usize, usize)>,
 }
