@@ -155,10 +155,15 @@ impl<'a> Solver<'a> {
 
 // Process region lists.
 impl<'a> Solver<'a> {
+
+pub struct KnownCells {
+    empty: Vec<(usize, usize)>,
+    mines: Vec<(usize, usize)>,
 }
 
+// The whole point of this struct.
 impl<'a> Solver<'a> {
-    pub fn calculate_known_cells(&self) -> Option<Vec<(usize, usize)>> {
+    pub fn calculate_known_cells(&self) -> Option<KnownCells> {
         let regions = self.extract_regions();
         // TODO somehow recursively breakdown the list of regions into smaller regions and
         // eliminate duplicates until it can't be broken down anymore.
