@@ -91,6 +91,8 @@ impl<'a> Solver<'a> {
                 CellState::Visible => (),
                 // Is presumed known, and therefore not part of the region.
                 CellState::Marked => {
+                    // TODO this assertion can fail if a mistake is made.
+                    assert!(num_watched_mines != 0);
                     num_watched_mines -= 1;
                 },
                 // Is unknown, and therefore required in analysis
