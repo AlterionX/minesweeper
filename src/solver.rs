@@ -58,6 +58,13 @@ pub struct Solver<'a> {
     pub board: &'a Board,
 }
 
+// Utility/Helpers
+impl<'a> Solver<'a> {
+    fn board_locs(&self) -> impl Iterator<Item=(usize, usize)> {
+        (0..self.board.h()).cartesian_product(0..self.board.w())
+    }
+}
+
 // Region extraction methods.
 impl<'a> Solver<'a> {
     fn region_around(&self, sentinel_loc @ (_, _): (usize, usize)) -> Option<Region> {
@@ -111,8 +118,8 @@ impl<'a> Solver<'a> {
     fn board_region(&self) -> Region {
         let mut num_mines = 0;
         let mut hidden = vec![];
-        for loc in (0..self.board.h()).cartesian_product(0..self.board.w()) {
-            let (row, col) = loc;
+        for loc in self.board_locs() {
+            let (col, row) = loc;
             let cell = &self.board.cells[row][col];
             if cell.category == CellCategory::Mine {
                 num_mines += 1;
@@ -139,11 +146,9 @@ impl<'a> Solver<'a> {
 
     fn extract_regions(&self) -> Vec<Region> {
         let mut rr = vec![self.board_region()];
-        for row in 0..self.board.h() {
-            for col in 0..self.board.w() {
-                if let Some(r) = self.region_around((col, row)) {
-                    rr.push(r)
-                }
+        for (col, row) in self.board_locs() {
+            if let Some(r) = self.region_around((col, row)) {
+                rr.push(r)
             }
         }
         rr
