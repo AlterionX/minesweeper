@@ -159,6 +159,13 @@ struct StrippedRegions {
     regions: Vec<Region>,
 }
 
+#[derive(Debug)]
+struct SegmentedRegions {
+    r0: Option<Region>,
+    rs: Region, // shared
+    r1: Option<Region>,
+}
+
 // Process region lists.
 impl<'a> Solver<'a> {
     fn strip_zero_regions_from(&self, rr: Vec<Region>) -> StrippedRegions {
@@ -191,6 +198,102 @@ impl<'a> Solver<'a> {
             regions: nonzero,
         }
     }
+
+    fn segment_regions(
+        &self,
+        parent0: &Region,
+        parent1: &Region,
+    ) -> Option<SegmentedRegions> {
+        let (r0_hidden, rs_hidden, r1_hidden) =
+            split_vecs(parent0.hidden.clone(), parent1.hidden.clone());
+        // TODO Calculate the constraints on mines, given what is required.
+        let rs_num_hidden = rs_hidden.len();
+        let r0_num_hidden = r0_hidden.len();
+        let r1_num_hidden = r1_hidden.len();
+        if rs_num_hidden == 0 {
+            // There is no overlap, so do nothing.
+            return None;
+        }
+
+        // The number of mines here is compressed imperfectly.
+        //
+        // Namely, the number of mines in r0 can be eliminated if the number of mines in rs is
+        // later found to be some specific number. (r0 has potentially 4 mines if rs has 5 or r0
+        // has potentially 3 mines if rs has 6. If we later discover that rs has 6, then we can
+        // also say that t0 has 3 mines.) We would need some hierarchical data structure for the
+        // regions to capture that information. This will do for now.
+        //
+        // TODO Consider implementing such a feature.
+        let mut r0_mines = vec![];
+        let mut rs_mines = vec![];
+        let mut r1_mines = vec![];
+        let parent_mine_combos = parent0.mines.iter().cloned().cartesian_product(parent1.mines.iter().cloned());
+        for (p0_mines, p1_mines) in parent_mine_combos {
+            // The maximum number of shared mines is obviously bounded by three things:
+            // - The number of hidden cells
+            // - The number of mines present in one parent region
+            // - The number of mines present in the other parent region
+            let rs_max_mines = (rs_num_hidden as u8).max(p0_mines).max(p1_mines);
+            // The minimum number of shared mines is obviously bounded by three things:
+            // - 0
+            // - The number of mines that don't fit in region 0 of parent 0
+            // - The number of mines that don't fit in region 1 of parent 1
+            let rs_min_mines = {
+                let r0_min_contribution = if p0_mines < r0_num_hidden as u8 {
+                    0
+                } else {
+                    p0_mines - r0_num_hidden as u8
+                };
+                let r1_min_contribution = if p1_mines < r1_num_hidden as u8 {
+                    0
+                } else {
+                    p1_mines - r1_num_hidden as u8
+                };
+                r0_min_contribution.max(r1_min_contribution)
+            };
+            let r0_max_mines = p0_mines - rs_min_mines;
+            let r1_max_mines = p1_mines - rs_min_mines;
+            let r0_min_mines = p0_mines - rs_max_mines;
+            let r1_min_mines = p1_mines - rs_max_mines;
+            r0_mines.extend(r0_min_mines..=r0_max_mines);
+            rs_mines.extend(rs_min_mines..=rs_max_mines);
+            r1_mines.extend(r1_min_mines..=r1_max_mines);
+        }
+        r0_mines.dedup();
+        rs_mines.dedup();
+        r1_mines.dedup();
+        let r0_mines = r0_mines;
+        let rs_mines = rs_mines;
+        let r1_mines = r1_mines;
+
+        // This should only occur if the user screws up somehow and we end up in an impossible
+        // situation.
+        assert!(!rs_mines.is_empty());
+
+        Some(SegmentedRegions {
+            r0: if r0_hidden.len() == 0 {
+                Some(Region {
+                    mines: r0_mines,
+                    hidden: r0_hidden,
+                })
+            } else {
+                None
+            },
+            rs: Region {
+                mines: rs_mines,
+                hidden: rs_hidden,
+            },
+            r1: if r1_hidden.len() == 0 {
+                Some(Region {
+                    mines: r1_mines,
+                    hidden: r1_hidden,
+                })
+            } else {
+                None
+            },
+        })
+    }
+}
 
 pub struct KnownCells {
     empty: Vec<(usize, usize)>,
