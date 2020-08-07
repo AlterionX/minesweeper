@@ -241,9 +241,11 @@ impl Board {
         }
 
         let cell = &mut self.cells[y][x];
-        if cell.state == CellState::Hidden {
-            cell.state = CellState::Marked;
-        }
+        cell.state = match cell.state {
+            CellState::Hidden => CellState::Marked,
+            CellState::Marked => CellState::Hidden,
+            CellState::Visible => CellState::Visible,
+        };
         Ok(())
     }
 
@@ -343,7 +345,7 @@ impl Board {
         for row in 0..h {
             for col in 0..w {
                 let cell = self.cells[row][col];
-                if cell.state == CellState::Marked && cell.category == CellCategory::Mine {
+                if cell.state == CellState::Hidden {
                     return false;
                 }
             }
