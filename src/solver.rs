@@ -121,19 +121,17 @@ impl<'a> Solver<'a> {
         for loc in self.board_locs() {
             let (col, row) = loc;
             let cell = &self.board.cells[row][col];
-            if cell.category == CellCategory::Mine {
-                num_mines += 1;
-            }
-            match cell.state {
+            match cell {
                 // Is known, and therefore not part of the region.
-                CellState::Visible => (),
+                // OR
                 // Is presumed known, and therefore not part of the region.
-                CellState::Marked => {
-                    num_mines -= 1;
-                },
+                Cell { state: CellState::Visible, .. } | Cell { state: CellState::Marked, .. } => (),
                 // Is unknown, and therefore required in analysis
-                CellState::Hidden => {
+                Cell { state: CellState::Hidden, category, .. } => {
                     hidden.push(loc);
+                    if *category == CellCategory::Mine {
+                        num_mines += 1;
+                    }
                 },
             };
         }
