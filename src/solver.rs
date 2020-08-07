@@ -3,9 +3,10 @@ use std::ops::{Bound, RangeBounds};
 
 use crate::board::{Cell, CellState, CellCategory, Board};
 
+#[derive(Debug)]
 struct Region {
     // Each bound is "or"d with the others.
-    mines: Vec<(Bound<usize>, Bound<usize>)>,
+    mines: Vec<u8>,
     hidden: Vec<(usize, usize)>,
 }
 
@@ -100,7 +101,7 @@ impl<'a> Solver<'a> {
         }
 
         Some(Region {
-            mines: vec![(Bound::Included(num_watched_mines as usize), Bound::Included(num_watched_mines as usize))],
+            mines: vec![num_watched_mines],
             hidden,
         })
     }
@@ -129,7 +130,7 @@ impl<'a> Solver<'a> {
         }
 
         Region {
-            mines: vec![(Bound::Included(num_mines as usize), Bound::Included(num_mines as usize))],
+            mines: vec![num_mines],
             hidden,
         }
     }
