@@ -153,8 +153,44 @@ impl<'a> Solver<'a> {
     }
 }
 
+#[derive(Debug)]
+struct StrippedRegions {
+    zero_locs: Vec<(usize, usize)>,
+    regions: Vec<Region>,
+}
+
 // Process region lists.
 impl<'a> Solver<'a> {
+    fn strip_zero_regions_from(&self, rr: Vec<Region>) -> StrippedRegions {
+        let (mut zero, mut nonzero) = (vec![], vec![]);
+        for r in rr {
+            let mut has_nonzero_entry = false;
+            for mine_cnt in &r.mines {
+                let has_mine = *mine_cnt == 0;
+                if !has_mine {
+                    has_nonzero_entry = true;
+                    break;
+                }
+            }
+            if has_nonzero_entry {
+                nonzero.push(r)
+            } else {
+                zero.push(r)
+            }
+        }
+        let mut zero_locs: Vec<_> = zero.into_iter().flat_map(|r| r.hidden).collect();
+        zero_locs.dedup();
+        for r in &mut nonzero {
+            r.hidden = r.hidden
+                .drain(..)
+                .filter(|loc| !zero_locs.contains(loc))
+                .collect()
+        }
+        StrippedRegions {
+            zero_locs,
+            regions: nonzero,
+        }
+    }
 
 pub struct KnownCells {
     empty: Vec<(usize, usize)>,
@@ -165,6 +201,7 @@ pub struct KnownCells {
 impl<'a> Solver<'a> {
     pub fn calculate_known_cells(&self) -> Option<KnownCells> {
         let regions = self.extract_regions();
+        let StrippedRegions { zero_locs, regions } = self.strip_zero_regions_from(regions);
         // TODO somehow recursively breakdown the list of regions into smaller regions and
         // eliminate duplicates until it can't be broken down anymore.
         // TODO Analyze the results after that.
