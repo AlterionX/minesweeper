@@ -1,45 +1,60 @@
 use itertools::{self as iter, Itertools};
-use std::ops::{Bound, RangeBounds};
+use std::{ops::{Bound, RangeBounds}, collections::HashSet};
 
 use crate::board::{Cell, CellState, CellCategory, Board};
 
 #[derive(Debug)]
 struct Region {
     // Each bound is "or"d with the others.
-    mines: Vec<u8>,
-    hidden: Vec<(usize, usize)>,
+    mines: HashSet<usize>,
+    hidden: HashSet<(usize, usize)>,
 }
 
-fn split_vecs<T: PartialEq>(aa: Vec<T>, bb: Vec<T>) -> (Vec<T>, Vec<T>, Vec<T>) {
-    let mut shared_els = vec![];
-    let mut aa_only_els = vec![];
-    let mut is_only_in_bb = vec![true; bb.len()];
-    for a in aa.into_iter() {
-        let mut is_in_bb = false;
-        for (idx, b) in bb.iter().enumerate() {
-            if &a == b {
-                is_only_in_bb[idx] = false;
-                is_in_bb = true;
-                break;
+impl Region {
+    fn all_mines(&self) -> bool {
+        if self.mines.len() != 1 {
+            return false;
+        }
+        for mines in &self.mines {
+            if *mines != self.hidden.len() {
+                return false;
             }
         }
-        if is_in_bb {
-            shared_els.push(a);
-        } else {
-            aa_only_els.push(a)
-        }
+        true
     }
-    let bb_only_els = iter::zip(
-        bb.into_iter(),
-        is_only_in_bb.into_iter(),
+
+    fn remove_locs_from_hidden(&mut self, locs: &[(usize, usize)]) -> usize {
+        let mut num_removed = 0;
+        for remove_loc in locs {
+            if self.hidden.remove(remove_loc) {
+                num_removed += 1;
+            }
+        }
+        num_removed
+    }
+
+    fn remove_empty_locs(&mut self, locs: &[(usize, usize)]) {
+        self.remove_locs_from_hidden(locs);
+    }
+
+    fn remove_mine_locs(&mut self, locs: &[(usize, usize)]) {
+        let num_removed = self.remove_locs_from_hidden(locs);
+        self.mines = self.mines.drain().map(|m| {
+            if num_removed >= m {
+                0
+            } else {
+                m - num_removed
+            }
+        }).collect();
+    }
+}
+
+fn split_sets<T: Eq + std::hash::Hash + Clone>(aa: HashSet<T>, bb: HashSet<T>) -> (HashSet<T>, HashSet<T>, HashSet<T>) {
+    (
+        aa.difference(&bb).cloned().collect(),
+        aa.intersection(&bb).cloned().collect(),
+        bb.difference(&aa).cloned().collect(),
     )
-        .filter_map(|(b, is_only_in_bb)| if is_only_in_bb {
-            Some(b)
-        } else {
-            None
-        })
-        .collect();
-    (aa_only_els, shared_els, bb_only_els)
 }
 
 fn map_bound<T, S, F>(b: Bound<T>, f: F) -> Bound<S>
@@ -90,7 +105,7 @@ impl<'a> Solver<'a> {
             // This is an error state.
             (CellState::Visible, CellCategory::Mine) => panic!("Did not expect to attempt to solve a board with an exploded mine."),
         };
-        let mut hidden = vec![];
+        let mut hidden = HashSet::new();
         for watched_loc in self.board.surroundings_of(sentinel_loc) {
             let watched_cell = self.board.cells[watched_loc.1][watched_loc.0];
             match watched_cell.state {
@@ -104,20 +119,22 @@ impl<'a> Solver<'a> {
                 },
                 // Is unknown, and therefore required in analysis
                 CellState::Hidden => {
-                    hidden.push(watched_loc);
+                    hidden.insert(watched_loc);
                 },
             };
         }
+        let mut mines = HashSet::new();
+        mines.insert(num_watched_mines as usize);
 
         Some(Region {
-            mines: vec![num_watched_mines],
+            mines,
             hidden,
         })
     }
 
     fn board_region(&self) -> Region {
         let mut num_mines = 0;
-        let mut hidden = vec![];
+        let mut hidden = HashSet::new();
         for loc in self.board_locs() {
             let (col, row) = loc;
             let cell = &self.board.cells[row][col];
@@ -128,7 +145,7 @@ impl<'a> Solver<'a> {
                 Cell { state: CellState::Visible, .. } | Cell { state: CellState::Marked, .. } => (),
                 // Is unknown, and therefore required in analysis
                 Cell { state: CellState::Hidden, category, .. } => {
-                    hidden.push(loc);
+                    hidden.insert(loc);
                     if *category == CellCategory::Mine {
                         num_mines += 1;
                     }
@@ -136,8 +153,10 @@ impl<'a> Solver<'a> {
             };
         }
 
+        let mut mines = HashSet::new();
+        mines.insert(num_mines as usize);
         Region {
-            mines: vec![num_mines],
+            mines,
             hidden,
         }
     }
@@ -155,7 +174,7 @@ impl<'a> Solver<'a> {
 
 #[derive(Debug)]
 struct StrippedRegions {
-    zero_locs: Vec<(usize, usize)>,
+    zero_locs: HashSet<(usize, usize)>,
     regions: Vec<Region>,
 }
 
@@ -185,11 +204,10 @@ impl<'a> Solver<'a> {
                 zero.push(r)
             }
         }
-        let mut zero_locs: Vec<_> = zero.into_iter().flat_map(|r| r.hidden).collect();
-        zero_locs.dedup();
+        let zero_locs: HashSet<_> = zero.into_iter().flat_map(|r| r.hidden).collect();
         for r in &mut nonzero {
             r.hidden = r.hidden
-                .drain(..)
+                .drain()
                 .filter(|loc| !zero_locs.contains(loc))
                 .collect()
         }
@@ -205,7 +223,7 @@ impl<'a> Solver<'a> {
         parent1: &Region,
     ) -> Option<SegmentedRegions> {
         let (r0_hidden, rs_hidden, r1_hidden) =
-            split_vecs(parent0.hidden.clone(), parent1.hidden.clone());
+            split_sets(parent0.hidden.clone(), parent1.hidden.clone());
         // TODO Calculate the constraints on mines, given what is required.
         let rs_num_hidden = rs_hidden.len();
         let r0_num_hidden = r0_hidden.len();
@@ -224,30 +242,30 @@ impl<'a> Solver<'a> {
         // regions to capture that information. This will do for now.
         //
         // TODO Consider implementing such a feature.
-        let mut r0_mines = vec![];
-        let mut rs_mines = vec![];
-        let mut r1_mines = vec![];
+        let mut r0_mines = HashSet::new();
+        let mut rs_mines = HashSet::new();
+        let mut r1_mines = HashSet::new();
         let parent_mine_combos = parent0.mines.iter().cloned().cartesian_product(parent1.mines.iter().cloned());
         for (p0_mines, p1_mines) in parent_mine_combos {
             // The maximum number of shared mines is obviously bounded by three things:
             // - The number of hidden cells
             // - The number of mines present in one parent region
             // - The number of mines present in the other parent region
-            let rs_max_mines = (rs_num_hidden as u8).max(p0_mines).max(p1_mines);
+            let rs_max_mines = (rs_num_hidden).max(p0_mines).max(p1_mines);
             // The minimum number of shared mines is obviously bounded by three things:
             // - 0
             // - The number of mines that don't fit in region 0 of parent 0
             // - The number of mines that don't fit in region 1 of parent 1
             let rs_min_mines = {
-                let r0_min_contribution = if p0_mines < r0_num_hidden as u8 {
+                let r0_min_contribution = if p0_mines < r0_num_hidden {
                     0
                 } else {
-                    p0_mines - r0_num_hidden as u8
+                    p0_mines - r0_num_hidden
                 };
-                let r1_min_contribution = if p1_mines < r1_num_hidden as u8 {
+                let r1_min_contribution = if p1_mines < r1_num_hidden {
                     0
                 } else {
-                    p1_mines - r1_num_hidden as u8
+                    p1_mines - r1_num_hidden
                 };
                 r0_min_contribution.max(r1_min_contribution)
             };
@@ -259,9 +277,6 @@ impl<'a> Solver<'a> {
             rs_mines.extend(rs_min_mines..=rs_max_mines);
             r1_mines.extend(r1_min_mines..=r1_max_mines);
         }
-        r0_mines.dedup();
-        rs_mines.dedup();
-        r1_mines.dedup();
         let r0_mines = r0_mines;
         let rs_mines = rs_mines;
         let r1_mines = r1_mines;
@@ -296,8 +311,8 @@ impl<'a> Solver<'a> {
 }
 
 pub struct KnownCells {
-    empty: Vec<(usize, usize)>,
-    mines: Vec<(usize, usize)>,
+    pub empty: HashSet<(usize, usize)>,
+    pub mines: HashSet<(usize, usize)>,
 }
 
 // The whole point of this struct.
