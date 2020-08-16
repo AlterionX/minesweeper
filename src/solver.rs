@@ -322,6 +322,7 @@ impl<'a> Solver<'a> {
             .flat_map(|(i, p0)| regions[i..].iter().map(|p1| (p0, p1)))
             .filter_map(|(p0, p1)| self.establish_regional_links(p0, p1))
             .collect::<VecDeque<_>>();
+        let mut since_last_change = 0;
         while let Some(link) = links.pop_front() {
             if link.mine_sets.len() == 1 { // Only one variant exists.
                 let LinkedSubRegion { r0, rs, r1, mine_sets } = link;
@@ -331,18 +332,24 @@ impl<'a> Solver<'a> {
                 let mut link_mine_locs = IndexSet::new();
                 if m0 == 0 {
                     link_zero_locs.extend(r0);
+                    since_last_change = 0;
                 } else if m0 == r0.len() {
                     link_mine_locs.extend(r0)
+                    since_last_change = 0;
                 }
                 if m1 == 0 {
                     link_zero_locs.extend(r1);
+                    since_last_change = 0;
                 } else if m1 == r1.len() {
                     link_mine_locs.extend(r1)
+                    since_last_change = 0;
                 }
                 if ms == 0 {
                     link_zero_locs.extend(rs);
+                    since_last_change = 0;
                 } else if ms == rs.len() {
                     link_mine_locs.extend(r1)
+                    since_last_change = 0;
                 }
                 for link in links {
                     link.remove_mines(&link_mine_locs);
@@ -358,6 +365,11 @@ impl<'a> Solver<'a> {
                 zero_locs.extend(link_zero_locs);
             } else { // Do nothing, as more than one variant exists.
                 links.push_back(link);
+            }
+            if since_last_change >= links.len() {
+                break;
+            } else {
+                since_last_change += 1;
             }
         }
         // TODO There will be 3 categories of spots: unknown, is_mine, is_empty.
