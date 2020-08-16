@@ -1,5 +1,5 @@
 use itertools::{self as iter, Itertools};
-use std::ops::{Bound, RangeBounds};
+use std::{ops::{Bound, RangeBounds}, collections::VecDeque};
 
 use indexmap::IndexSet;
 
@@ -311,13 +311,65 @@ pub struct KnownCells {
 
 // The whole point of this struct.
 impl<'a> Solver<'a> {
-    pub fn calculate_known_cells(&self) -> Option<KnownCells> {
+    // Error when board state contradicts itself. Typically due to error in placing a flagged cell.
+    pub fn calculate_known_cells(&self) -> Result<Option<KnownCells>, ()> {
         let regions = self.extract_regions();
-        let StrippedRegions { zero_locs, regions } = self.strip_zero_regions_from(regions);
-        // TODO somehow recursively breakdown the list of regions into smaller regions and
-        // eliminate duplicates until it can't be broken down anymore.
-        // TODO Analyze the results after that.
-        unimplemented!("Solver not yet fully functional.");
+        let StrippedRegions { mut zero_locs, regions } = self.strip_zero_regions_from(regions);
+        let mine_locs = IndexSet::new();
+        // Find linked
+        let mut links = regions.iter()
+            .enumerate()
+            .flat_map(|(i, p0)| regions[i..].iter().map(|p1| (p0, p1)))
+            .filter_map(|(p0, p1)| self.establish_regional_links(p0, p1))
+            .collect::<VecDeque<_>>();
+        while let Some(link) = links.pop_front() {
+            if link.mine_sets.len() == 1 { // Only one variant exists.
+                let LinkedSubRegion { r0, rs, r1, mine_sets } = link;
+                let (m0, ms, m1) = mine_sets.pop()
+                    .expect("the element that was just reported to be there.");
+                let mut link_zero_locs = IndexSet::new();
+                let mut link_mine_locs = IndexSet::new();
+                if m0 == 0 {
+                    link_zero_locs.extend(r0);
+                } else if m0 == r0.len() {
+                    link_mine_locs.extend(r0)
+                }
+                if m1 == 0 {
+                    link_zero_locs.extend(r1);
+                } else if m1 == r1.len() {
+                    link_mine_locs.extend(r1)
+                }
+                if ms == 0 {
+                    link_zero_locs.extend(rs);
+                } else if ms == rs.len() {
+                    link_mine_locs.extend(r1)
+                }
+                for link in links {
+                    link.remove_mines(&link_mine_locs);
+                    link.remove_empty(&link_zero_locs);
+                    // TODO There are more conclusions available than just this. Figure out what
+                    // they are.
+                }
+                for region in regions {
+                    region.remove_mine_locs(&link_mine_locs);
+                    region.remove_empty_locs(&link_zero_locs);
+                }
+                mine_locs.extend(link_mine_locs);
+                zero_locs.extend(link_zero_locs);
+            } else { // Do nothing, as more than one variant exists.
+                links.push_back(link);
+            }
+        }
+        // TODO There will be 3 categories of spots: unknown, is_mine, is_empty.
+        // unimplemented!("Solver not yet fully functional.");
+        if zero_locs.is_empty() && mine_locs.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(KnownCells {
+                empty: zero_locs,
+                mines: mine_locs,
+            }))
+        }
     }
 }
 

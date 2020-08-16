@@ -8,6 +8,7 @@ use termion::{
 };
 
 mod solver;
+use solver::Solver;
 mod board;
 use board::{Board, Dim, Error};
 
@@ -278,6 +279,18 @@ Press any key to continue.");
                 .expect("write to be fine.");
             break;
         }
+
+        write!(stdout, "{}", termion::cursor::Goto(
+                0,
+                (board.h() + 1) as u16,
+        ));
+        Solver { board: &board }.calculate_known_cells();
+        println!("\r\n{:?}", current_point);
+        write!(stdout, "{}", termion::cursor::Goto(
+                (current_point.0 + 1) as u16,
+                (current_point.1 + 1) as u16,
+        ));
+        stdout.flush();
     }
 
     write!(stdout, "\n\rThanks for playing! Farewell.\n\r")

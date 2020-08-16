@@ -355,7 +355,8 @@ impl Board {
 
     pub fn launch_probe(&self) -> Result<(), Error> {
         // Check for any 100% valid moves.
-        let valid_moves = Solver { board: self }.calculate_known_cells();
+        let valid_moves = Solver { board: self }.calculate_known_cells()
+            .expect("player did not make a mistake. Which needs to be dealt with eventually, since humans always make mistakes. Except that one person. Yeah, that one.");
         if valid_moves.is_some() {
             Err(Error::Dead)
         } else {
