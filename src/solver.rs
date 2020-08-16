@@ -6,6 +6,60 @@ use indexmap::IndexSet;
 use crate::board::{Cell, CellState, CellCategory, Board};
 
 #[derive(Debug)]
+struct LinkedSubRegion {
+    mine_sets: IndexSet<(usize, usize, usize)>,
+    r0: IndexSet<(usize, usize)>,
+    rs: IndexSet<(usize, usize)>,
+    r1: IndexSet<(usize, usize)>,
+}
+
+impl LinkedSubRegion {
+    fn remove_from_r(&mut self, c: u8, locs: &IndexSet<(usize, usize)>) -> usize {
+        let r = match c {
+            b'0' => &mut self.r0,
+            b's' => &mut self.rs,
+            b'1' => &mut self.r1,
+            _ => panic!("bad region number provided to linked sub region: {}", c),
+        };
+        let original_r_size = r.len();
+        r.retain(|l| !locs.contains(l));
+        let removed = original_r_size - r.len();
+        removed
+    }
+    fn remove_mines(&mut self, locs: &IndexSet<(usize, usize)>) {
+        // Iterate over locations to remove
+        let r0_rem = self.remove_from_r(b'0', locs);
+        let rs_rem = self.remove_from_r(b's', locs);
+        let r1_rem = self.remove_from_r(b'1', locs);
+        self.mine_sets = self.mine_sets.drain(..)
+            .filter(|&(m0, ms, m1)| {
+                m0 >= r0_rem
+                    && ms >= rs_rem
+                    && m1 >= r1_rem
+            })
+            .map(|(m0, ms, m1)| (
+                m0 - r0_rem,
+                ms - rs_rem,
+                m1 - r1_rem,
+            ))
+            .collect();
+    }
+    fn remove_empty(&mut self, locs: &IndexSet<(usize, usize)>) {
+        self.remove_from_r(b'0', locs);
+        self.remove_from_r(b's', locs);
+        self.remove_from_r(b'1', locs);
+        self.mine_sets.retain(|&(m0, ms, m1)| {
+            m0 <= self.r0.len()
+                && ms <= self.rs.len()
+                && m1 <= self.r1.len()
+        });
+        // TODO Actually resolve this error, since it's a valid game state.
+        assert!(self.mine_sets.len() != 1, "an empty set should be impossible if marks are correct.");
+    }
+}
+
+// Regions have definite number of bombs.
+#[derive(Debug)]
 struct Region {
     // Each bound is "or"d with the others.
     mines: usize,
