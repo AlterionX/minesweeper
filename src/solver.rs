@@ -1,29 +1,23 @@
 use itertools::{self as iter, Itertools};
-use std::{ops::{Bound, RangeBounds}, collections::HashSet};
+use std::ops::{Bound, RangeBounds};
+
+use indexmap::IndexSet;
 
 use crate::board::{Cell, CellState, CellCategory, Board};
 
 #[derive(Debug)]
 struct Region {
     // Each bound is "or"d with the others.
-    mines: HashSet<usize>,
-    hidden: HashSet<(usize, usize)>,
+    mines: usize,
+    hidden: IndexSet<(usize, usize)>,
 }
 
 impl Region {
     fn all_mines(&self) -> bool {
-        if self.mines.len() != 1 {
-            return false;
-        }
-        for mines in &self.mines {
-            if *mines != self.hidden.len() {
-                return false;
-            }
-        }
-        true
+        self.hidden.len() == self.mines
     }
 
-    fn remove_locs_from_hidden(&mut self, locs: &[(usize, usize)]) -> usize {
+    fn remove_locs_from_hidden<'a, I: IntoIterator<Item = &'a (usize, usize)>>(&mut self, locs: I) -> usize {
         let mut num_removed = 0;
         for remove_loc in locs {
             if self.hidden.remove(remove_loc) {
@@ -33,23 +27,17 @@ impl Region {
         num_removed
     }
 
-    fn remove_empty_locs(&mut self, locs: &[(usize, usize)]) {
+    fn remove_empty_locs<'a, I: IntoIterator<Item = &'a (usize, usize)>>(&mut self, locs: I) {
         self.remove_locs_from_hidden(locs);
     }
 
-    fn remove_mine_locs(&mut self, locs: &[(usize, usize)]) {
+    fn remove_mine_locs<'a, I: IntoIterator<Item = &'a (usize, usize)>>(&mut self, locs: I) {
         let num_removed = self.remove_locs_from_hidden(locs);
-        self.mines = self.mines.drain().map(|m| {
-            if num_removed >= m {
-                0
-            } else {
-                m - num_removed
-            }
-        }).collect();
+        self.mines -= num_removed;
     }
 }
 
-fn split_sets<T: Eq + std::hash::Hash + Clone>(aa: HashSet<T>, bb: HashSet<T>) -> (HashSet<T>, HashSet<T>, HashSet<T>) {
+fn split_sets<T: Eq + std::hash::Hash + Copy>(aa: IndexSet<T>, bb: IndexSet<T>) -> (IndexSet<T>, IndexSet<T>, IndexSet<T>) {
     (
         aa.difference(&bb).cloned().collect(),
         aa.intersection(&bb).cloned().collect(),
@@ -105,7 +93,7 @@ impl<'a> Solver<'a> {
             // This is an error state.
             (CellState::Visible, CellCategory::Mine) => panic!("Did not expect to attempt to solve a board with an exploded mine."),
         };
-        let mut hidden = HashSet::new();
+        let mut hidden = IndexSet::new();
         for watched_loc in self.board.surroundings_of(sentinel_loc) {
             let watched_cell = self.board.cells[watched_loc.1][watched_loc.0];
             match watched_cell.state {
@@ -123,18 +111,16 @@ impl<'a> Solver<'a> {
                 },
             };
         }
-        let mut mines = HashSet::new();
-        mines.insert(num_watched_mines as usize);
 
         Some(Region {
-            mines,
+            mines: num_watched_mines as usize,
             hidden,
         })
     }
 
     fn board_region(&self) -> Region {
         let mut num_mines = 0;
-        let mut hidden = HashSet::new();
+        let mut hidden = IndexSet::new();
         for loc in self.board_locs() {
             let (col, row) = loc;
             let cell = &self.board.cells[row][col];
@@ -153,10 +139,8 @@ impl<'a> Solver<'a> {
             };
         }
 
-        let mut mines = HashSet::new();
-        mines.insert(num_mines as usize);
         Region {
-            mines,
+            mines: num_mines,
             hidden,
         }
     }
@@ -174,7 +158,7 @@ impl<'a> Solver<'a> {
 
 #[derive(Debug)]
 struct StrippedRegions {
-    zero_locs: HashSet<(usize, usize)>,
+    zero_locs: IndexSet<(usize, usize)>,
     regions: Vec<Region>,
 }
 
@@ -190,24 +174,16 @@ impl<'a> Solver<'a> {
     fn strip_zero_regions_from(&self, rr: Vec<Region>) -> StrippedRegions {
         let (mut zero, mut nonzero) = (vec![], vec![]);
         for r in rr {
-            let mut has_nonzero_entry = false;
-            for mine_cnt in &r.mines {
-                let has_mine = *mine_cnt == 0;
-                if !has_mine {
-                    has_nonzero_entry = true;
-                    break;
-                }
-            }
-            if has_nonzero_entry {
+            if r.mines == 0 {
                 nonzero.push(r)
             } else {
                 zero.push(r)
             }
         }
-        let zero_locs: HashSet<_> = zero.into_iter().flat_map(|r| r.hidden).collect();
+        let zero_locs: IndexSet<_> = zero.into_iter().flat_map(|r| r.hidden).collect();
         for r in &mut nonzero {
             r.hidden = r.hidden
-                .drain()
+                .drain(..)
                 .filter(|loc| !zero_locs.contains(loc))
                 .collect()
         }
@@ -217,11 +193,11 @@ impl<'a> Solver<'a> {
         }
     }
 
-    fn segment_regions(
+    fn establish_regional_links(
         &self,
         parent0: &Region,
         parent1: &Region,
-    ) -> Option<SegmentedRegions> {
+    ) -> Option<LinkedSubRegion> {
         let (r0_hidden, rs_hidden, r1_hidden) =
             split_sets(parent0.hidden.clone(), parent1.hidden.clone());
         // TODO Calculate the constraints on mines, given what is required.
@@ -233,86 +209,50 @@ impl<'a> Solver<'a> {
             return None;
         }
 
-        // The number of mines here is compressed imperfectly.
-        //
-        // Namely, the number of mines in r0 can be eliminated if the number of mines in rs is
-        // later found to be some specific number. (r0 has potentially 4 mines if rs has 5 or r0
-        // has potentially 3 mines if rs has 6. If we later discover that rs has 6, then we can
-        // also say that t0 has 3 mines.) We would need some hierarchical data structure for the
-        // regions to capture that information. This will do for now.
-        //
-        // TODO Consider implementing such a feature.
-        let mut r0_mines = HashSet::new();
-        let mut rs_mines = HashSet::new();
-        let mut r1_mines = HashSet::new();
-        let parent_mine_combos = parent0.mines.iter().cloned().cartesian_product(parent1.mines.iter().cloned());
-        for (p0_mines, p1_mines) in parent_mine_combos {
-            // The maximum number of shared mines is obviously bounded by three things:
-            // - The number of hidden cells
-            // - The number of mines present in one parent region
-            // - The number of mines present in the other parent region
-            let rs_max_mines = (rs_num_hidden).max(p0_mines).max(p1_mines);
-            // The minimum number of shared mines is obviously bounded by three things:
-            // - 0
-            // - The number of mines that don't fit in region 0 of parent 0
-            // - The number of mines that don't fit in region 1 of parent 1
-            let rs_min_mines = {
-                let r0_min_contribution = if p0_mines < r0_num_hidden {
-                    0
-                } else {
-                    p0_mines - r0_num_hidden
-                };
-                let r1_min_contribution = if p1_mines < r1_num_hidden {
-                    0
-                } else {
-                    p1_mines - r1_num_hidden
-                };
-                r0_min_contribution.max(r1_min_contribution)
+        let (p0_mines, p1_mines) = (parent0.mines, parent1.mines);
+
+        // The maximum number of shared mines is obviously bounded by three things:
+        // - The number of hidden cells
+        // - The number of mines present in one parent region
+        // - The number of mines present in the other parent region
+        let rs_max_mines = (rs_num_hidden).max(p0_mines).max(p1_mines);
+        // The minimum number of shared mines is obviously bounded by three things:
+        // - 0
+        // - The number of mines that don't fit in region 0 of parent 0
+        // - The number of mines that don't fit in region 1 of parent 1
+        let rs_min_mines = {
+            let r0_min_contribution = if p0_mines < r0_num_hidden {
+                0
+            } else {
+                p0_mines - r0_num_hidden
             };
-            let r0_max_mines = p0_mines - rs_min_mines;
-            let r1_max_mines = p1_mines - rs_min_mines;
-            let r0_min_mines = p0_mines - rs_max_mines;
-            let r1_min_mines = p1_mines - rs_max_mines;
-            r0_mines.extend(r0_min_mines..=r0_max_mines);
-            rs_mines.extend(rs_min_mines..=rs_max_mines);
-            r1_mines.extend(r1_min_mines..=r1_max_mines);
+            let r1_min_contribution = if p1_mines < r1_num_hidden {
+                0
+            } else {
+                p1_mines - r1_num_hidden
+            };
+            r0_min_contribution.max(r1_min_contribution)
+        };
+
+        let linkages = IndexSet::new();
+        for rs_mines in rs_min_mines..=rs_max_mines {
+            let r0_mines = p0_mines - rs_mines;
+            let r1_mines = p1_mines - rs_mines;
+            linkages.insert((r0_mines, rs_mines, r1_mines));
         }
-        let r0_mines = r0_mines;
-        let rs_mines = rs_mines;
-        let r1_mines = r1_mines;
 
-        // This should only occur if the user screws up somehow and we end up in an impossible
-        // situation.
-        assert!(!rs_mines.is_empty());
-
-        Some(SegmentedRegions {
-            r0: if r0_hidden.len() == 0 {
-                Some(Region {
-                    mines: r0_mines,
-                    hidden: r0_hidden,
-                })
-            } else {
-                None
-            },
-            rs: Region {
-                mines: rs_mines,
-                hidden: rs_hidden,
-            },
-            r1: if r1_hidden.len() == 0 {
-                Some(Region {
-                    mines: r1_mines,
-                    hidden: r1_hidden,
-                })
-            } else {
-                None
-            },
+        Some(LinkedSubRegion {
+            mine_sets: linkages,
+            r0: r0_hidden,
+            rs: rs_hidden,
+            r1: r1_hidden,
         })
     }
 }
 
 pub struct KnownCells {
-    pub empty: HashSet<(usize, usize)>,
-    pub mines: HashSet<(usize, usize)>,
+    pub empty: IndexSet<(usize, usize)>,
+    pub mines: IndexSet<(usize, usize)>,
 }
 
 // The whole point of this struct.
