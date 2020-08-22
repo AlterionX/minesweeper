@@ -270,7 +270,7 @@ Press any key to continue.");
             },
         }
 
-        if board.is_completed() {
+        if board.is_all_but_mines_revealed() {
             let size = termion::terminal_size()
                 .expect("no problem getting the terminal size.");
             write!(stdout, "{}", termion::cursor::Goto(0, size.1 - 1))

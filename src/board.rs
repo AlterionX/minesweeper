@@ -171,43 +171,96 @@ impl Board {
     }
 
     pub fn new_seeded(dim: Dim, num_mines: u64, seed: <BaseRng as SeedableRng>::Seed) -> Result<Self, ()> {
-        let (w, h) = (dim.w(), dim.h());
         let mut randos = BaseRng::from_seed(seed);
 
-        let (mut x_randos, mut y_randos) = {
-            let mut seed = [[0; 32]; 2];
-            randos.fill_bytes(&mut seed[0]);
-            randos.fill_bytes(&mut seed[1]);
-            let x_rng = BaseRng::from_seed(seed[0]);
-            let y_rng = BaseRng::from_seed(seed[1]);
+        let mut seed = [[0; 32]; 2];
+        randos.fill_bytes(&mut seed[0]);
+        randos.fill_bytes(&mut seed[1]);
+        let x_rng = BaseRng::from_seed(seed[0]);
+        let y_rng = BaseRng::from_seed(seed[1]);
 
-            let x_range = Uniform::from(0..w);
-            let y_range = Uniform::from(0..h);
+        let x_range = Uniform::from(0..dim.w());
+        let y_range = Uniform::from(0..dim.h());
 
-            (x_rng.sample_iter(x_range), y_rng.sample_iter(y_range))
-        };
+        let (x_randos, y_randos) = (x_rng.sample_iter(x_range), y_rng.sample_iter(y_range));
 
+        Self::new_fixed(dim, x_randos.zip(y_randos).take(num_mines as usize))
+    }
+
+    pub fn new_fixed<I>(dim: Dim, locs: I) -> Result<Self, ()> where I: IntoIterator<Item = (usize, usize)> {
+        let (w, h) = (dim.w(), dim.h());
         let mut cells = vec![vec![Cell::default(); w as usize]; h as usize]
             .into_iter()
             .map(|v| v.into_boxed_slice())
             .collect::<Vec<_>>()
             .into_boxed_slice();
-        let dims = (w, h);
 
-        for _ in 0..num_mines {
-            let mut x;
-            let mut y;
-            while {
-                x = x_randos.next().ok_or(())? as usize;
-                y = y_randos.next().ok_or(())? as usize;
-                cells[y][x].category == CellCategory::Mine
-            } {}
-            cells[y][x].category = CellCategory::Mine;
+        for loc in locs.into_iter() {
+            cells[loc.1][loc.0].category = CellCategory::Mine;
         }
 
+        Self::from_cells(cells)
+    }
+
+    #[cfg(test)]
+    pub fn from_save(cells: &[u8]) -> Result<Self, ()> {
+        let mut board = {
+            let mut board = vec![];
+            let mut row = vec![];
+            for cell in cells {
+                match cell {
+                    b'\n' => {
+                        board.push(row.into_boxed_slice());
+                        row = vec![];
+                    }
+                    b' ' => {
+                        row.push(Cell {
+                            state: CellState::Visible,
+                            category: CellCategory::Empty(None),
+                            scratch: false,
+                        })
+                    }
+                    b'x' => {
+                        row.push(Cell {
+                            state: CellState::Hidden,
+                            category: CellCategory::Mine,
+                            scratch: false,
+                        })
+                    }
+                    b'H' => {
+                        row.push(Cell {
+                            state: CellState::Hidden,
+                            category: CellCategory::Empty(None),
+                            scratch: false,
+                        })
+                    }
+                    _ => return Err(()),
+                }
+            }
+            if !row.is_empty() {
+                board.push(row.into_boxed_slice())
+            }
+            board.into_boxed_slice()
+        };
+
+        // Validate board size.
+        let h = board.len();
+        let w = board.first().map_or(0, |v| v.len());
+        for row in board.iter() {
+            if row.len() != w {
+                return Err(());
+            }
+        }
+
+        Self::from_cells(board)
+    }
+
+    pub fn from_cells(cells: Box<[Box<[Cell]>]>) -> Result<Self, ()> {
+        let h = cells.len();
+        let w = cells.first().map_or(0, |v| v.len());
         let mut board = Self {
             cells,
-            dims,
+            dims: (w, h),
         };
 
         for row in 0..h {
@@ -340,12 +393,12 @@ impl Board {
 
 // Probing and stat checking.
 impl Board {
-    pub fn is_completed(&self) -> bool {
+    pub fn is_all_but_mines_revealed(&self) -> bool {
         let (w, h) = self.dims;
         for row in 0..h {
             for col in 0..w {
                 let cell = self.cells[row][col];
-                if cell.state == CellState::Hidden {
+                if cell.category != CellCategory::Mine && cell.state != CellState::Visible {
                     return false;
                 }
             }

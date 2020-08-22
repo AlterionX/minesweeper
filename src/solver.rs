@@ -1,5 +1,5 @@
-use itertools::{self as iter, Itertools};
-use std::{ops::{Bound, RangeBounds}, collections::VecDeque};
+use itertools::Itertools;
+use std::{ops::Bound, collections::VecDeque};
 
 use indexmap::IndexSet;
 
@@ -48,10 +48,11 @@ impl LinkedSubRegion {
         self.remove_from_r(b'0', locs);
         self.remove_from_r(b's', locs);
         self.remove_from_r(b'1', locs);
+        let (r0_len, rs_len, r1_len) = (self.r0.len(), self.rs.len(), self.r1.len());
         self.mine_sets.retain(|&(m0, ms, m1)| {
-            m0 <= self.r0.len()
-                && ms <= self.rs.len()
-                && m1 <= self.r1.len()
+            m0 <= r0_len
+                && ms <= rs_len
+                && m1 <= r1_len
         });
         // TODO Actually resolve this error, since it's a valid game state.
         assert!(self.mine_sets.len() != 1, "an empty set should be impossible if marks are correct.");
@@ -288,7 +289,7 @@ impl<'a> Solver<'a> {
             r0_min_contribution.max(r1_min_contribution)
         };
 
-        let linkages = IndexSet::new();
+        let mut linkages = IndexSet::new();
         for rs_mines in rs_min_mines..=rs_max_mines {
             let r0_mines = p0_mines - rs_mines;
             let r1_mines = p1_mines - rs_mines;
@@ -314,50 +315,51 @@ impl<'a> Solver<'a> {
     // Error when board state contradicts itself. Typically due to error in placing a flagged cell.
     pub fn calculate_known_cells(&self) -> Result<Option<KnownCells>, ()> {
         let regions = self.extract_regions();
-        let StrippedRegions { mut zero_locs, regions } = self.strip_zero_regions_from(regions);
-        let mine_locs = IndexSet::new();
+        let StrippedRegions { mut zero_locs, mut regions } = self.strip_zero_regions_from(regions);
+        let mut mine_locs = IndexSet::new();
         // Find linked
         let mut links = regions.iter()
             .enumerate()
-            .flat_map(|(i, p0)| regions[i..].iter().map(|p1| (p0, p1)))
+            .flat_map(|(i, p0)| regions[i..].iter().map(move |p1| (p0, p1)))
             .filter_map(|(p0, p1)| self.establish_regional_links(p0, p1))
             .collect::<VecDeque<_>>();
         let mut since_last_change = 0;
         while let Some(link) = links.pop_front() {
             if link.mine_sets.len() == 1 { // Only one variant exists.
-                let LinkedSubRegion { r0, rs, r1, mine_sets } = link;
+                let LinkedSubRegion { r0, rs, r1, mut mine_sets } = link;
                 let (m0, ms, m1) = mine_sets.pop()
                     .expect("the element that was just reported to be there.");
+                assert!(mine_sets.is_empty(), "mine_sets to have no more elements.");
                 let mut link_zero_locs = IndexSet::new();
                 let mut link_mine_locs = IndexSet::new();
                 if m0 == 0 {
                     link_zero_locs.extend(r0);
                     since_last_change = 0;
                 } else if m0 == r0.len() {
-                    link_mine_locs.extend(r0)
+                    link_mine_locs.extend(r0);
                     since_last_change = 0;
                 }
                 if m1 == 0 {
                     link_zero_locs.extend(r1);
                     since_last_change = 0;
                 } else if m1 == r1.len() {
-                    link_mine_locs.extend(r1)
+                    link_mine_locs.extend(r1);
                     since_last_change = 0;
                 }
                 if ms == 0 {
                     link_zero_locs.extend(rs);
                     since_last_change = 0;
                 } else if ms == rs.len() {
-                    link_mine_locs.extend(r1)
+                    link_mine_locs.extend(rs);
                     since_last_change = 0;
                 }
-                for link in links {
+                for link in &mut links {
                     link.remove_mines(&link_mine_locs);
                     link.remove_empty(&link_zero_locs);
                     // TODO There are more conclusions available than just this. Figure out what
                     // they are.
                 }
-                for region in regions {
+                for region in &mut regions {
                     region.remove_mine_locs(&link_mine_locs);
                     region.remove_empty_locs(&link_zero_locs);
                 }
@@ -389,5 +391,6 @@ impl<'a> Solver<'a> {
 mod test {
     #[test]
     fn solver_test() {
+        board::from_save(include_bytes!("testing/boards/basic.txt"))
     }
 }
