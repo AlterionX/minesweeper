@@ -71,7 +71,7 @@ pub fn run(mut state: InitialState<'_, '_>) -> () {
 
     let stage1 = stage0.into_iter().map(csp0::run).collect::<Vec<_>>();
 
-    // TODO Convert stage1 to they input to `csp0::run`.
+    // TODO Convert stage1 to they input to `csp1::run`.
 
     let stage2 = csp1::run(stage1);
 

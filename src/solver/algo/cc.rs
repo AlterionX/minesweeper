@@ -19,7 +19,7 @@ impl DisjointSet {
 }
 
 impl DisjointSet {
-    fn root(&self, id: usize) -> usize {
+    fn root(&mut self, id: usize) -> usize {
         let history = vec![id];
         let root = id;
         let ptr = &self.0[root];
@@ -55,8 +55,10 @@ impl DisjointSet {
 }
 
 impl DisjointSet {
-    pub fn run<T, F>(els: &VecDeque<T>, is_joint: F) -> Self where F: Fn(&T, &T) -> bool {
-        let unions = Self::new(els.len());
+    pub fn run<T, F>(els: &VecDeque<T>, is_joint: F) -> Self
+        where F: Fn(&T, &T) -> bool
+    {
+        let mut unions = Self::new(els.len());
 
         for i0 in 0..(unions.len() - 1) {
             for i1 in (i0 + 1)..unions.len() {
