@@ -18,6 +18,7 @@
 //! situations. This CSP involves the target board mine quantity.
 
 mod region;
+mod algo;
 
 use indexmap::IndexSet;
 use std::collections::VecDeque;
