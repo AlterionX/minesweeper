@@ -1,3 +1,22 @@
+//! This module attempts to perform a variant of CSP on the board's state. This
+//! needs to do an exhaustive search over state space, however, so it may be a
+//! bit slow. Scratch that, it's definitely going to be slow.
+//!
+//! Making it faster is on the TODO list.
+//!
+//! Summary of what's going on:
+//!
+//! First, we locate connected components of linked sub regions. This means that
+//! any of the three regions involved in the linked sub regions contains at
+//! least one location in common with another linked sub region.
+//!
+//! Second, we exhaustively solve the tighter CSP of the connected component,
+//! short circuiting on impossible situations. This CSP involves number of mines
+//! within each individual component.
+//!
+//! Lastly, we solve the CSP of the components, shortcircuiting on impossible
+//! situations. This CSP involves the target board mine quantity.
+
 mod region;
 
 use indexmap::IndexSet;
