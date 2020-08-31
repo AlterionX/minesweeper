@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use rand::{Rng, RngCore, SeedableRng, distributions::Uniform, rngs::OsRng};
 use rand_xoshiro::Xoshiro256PlusPlus as BaseRng;
 
@@ -78,6 +79,7 @@ impl Dim {
     }
 }
 
+#[derive(Debug)]
 pub struct Board {
     pub cells: Box<[Box<[Cell]>]>,
     dims: (usize, usize),
@@ -148,6 +150,10 @@ impl Board {
     pub fn h(&self) -> usize {
         self.dims.1
     }
+
+    pub fn all_locs(&self) -> impl Iterator<Item=(usize, usize)> {
+        (0..self.h()).cartesian_product(0..self.w())
+    }
 }
 
 // Constructors
@@ -209,11 +215,19 @@ impl Board {
             let mut row = vec![];
             for cell in cells {
                 match cell {
+                    b'\r' => {} // Ignore any part of newline other than the actual newline character.
                     b'\n' => {
                         board.push(row.into_boxed_slice());
                         row = vec![];
                     }
-                    b' ' => {
+                    b'!' => {
+                        row.push(Cell {
+                            state: CellState::Visible,
+                            category: CellCategory::Mine,
+                            scratch: false,
+                        })
+                    }
+                    b'0'..=b'9' | b' ' => {
                         row.push(Cell {
                             state: CellState::Visible,
                             category: CellCategory::Empty(None),
@@ -230,6 +244,20 @@ impl Board {
                     b'H' => {
                         row.push(Cell {
                             state: CellState::Hidden,
+                            category: CellCategory::Empty(None),
+                            scratch: false,
+                        })
+                    }
+                    b'F' => {
+                        row.push(Cell {
+                            state: CellState::Marked,
+                            category: CellCategory::Mine,
+                            scratch: false,
+                        })
+                    }
+                    b'f' => {
+                        row.push(Cell {
+                            state: CellState::Marked,
                             category: CellCategory::Empty(None),
                             scratch: false,
                         })
@@ -408,7 +436,7 @@ impl Board {
 
     pub fn launch_probe(&self) -> Result<(), Error> {
         // Check for any 100% valid moves.
-        let valid_moves = Solver { board: self }.calculate_known_cells()
+        let valid_moves = Solver::new(self).calculate_known_cells()
             .expect("player did not make a mistake. Which needs to be dealt with eventually, since humans always make mistakes. Except that one person. Yeah, that one.");
         if valid_moves.is_some() {
             Err(Error::Dead)
@@ -442,7 +470,8 @@ mod test {
     use super::*;
 
     #[test]
-    fn board_surroundings_iter() {
-        let board = Board::new(20, 20, rand::rngs::SmallRngs::from_entropy());
+    fn from_save_test() {
+        Board::from_save(include_bytes!("../testing/boards/basic.txt"))
+            .expect("board to parse correctly from file.");
     }
 }

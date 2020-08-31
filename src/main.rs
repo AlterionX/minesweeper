@@ -7,6 +7,8 @@ use termion::{
     event::{Key, MouseButton, Event, MouseEvent},
 };
 
+mod util;
+
 mod solver;
 use solver::Solver;
 mod board;
@@ -284,7 +286,7 @@ Press any key to continue.");
                 0,
                 (board.h() + 1) as u16,
         ));
-        Solver { board: &board }.calculate_known_cells();
+        Solver::new(&board).calculate_known_cells();
         println!("\r\n{:?}", current_point);
         write!(stdout, "{}", termion::cursor::Goto(
                 (current_point.0 + 1) as u16,
